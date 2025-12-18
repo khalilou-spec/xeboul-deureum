@@ -168,25 +168,57 @@ document.addEventListener('DOMContentLoaded', function() {
         const message = buildMessage(order);
         const encoded = encodeURIComponent(message);
         const phoneDigits = (order.phone && order.phone.replace(/\D/g, '')) || '221779715026';
-        const appUrl = `whatsapp://send?phone=${phoneDigits}&text=${encoded}`;
         const webUrl = `https://api.whatsapp.com/send?phone=${phoneDigits}&text=${encoded}`;
 
-        // tenter d'ouvrir l'app puis fallback web
-        try {
-            window.location.href = appUrl;
-            setTimeout(() => window.open(webUrl, '_blank'), 700);
-        } catch (e) {
-            window.open(webUrl, '_blank');
+        const ua = navigator.userAgent || '';
+        const isAndroid = /Android/i.test(ua);
+        const isIOS = /iPhone|iPad|iPod/i.test(ua);
+        const inApp = /FBAN|FBAV|Instagram|Twitter|LinkedIn|Pinterest|Line|Snapchat|WeChat/i.test(ua);
+
+        // If embedded/in-app browser, try to copy message and warn user
+        if (inApp) {
+            showToast("Votre navigateur intégré peut forcer l'ouverture sur WhatsApp Web. Je copie le message: ouvrez WhatsApp et collez‑le.");
+            if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+                try { await navigator.clipboard.writeText(message); } catch (e) {}
+            }
+            // still attempt to open app below, but user may need to open in system browser
         }
 
-        // copier en dernier recours
-        setTimeout(() => {
-            if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
-                navigator.clipboard.writeText(message).then(() => {
-                    alert('Message copié dans le presse-papiers. Ouvrez WhatsApp et collez-le pour envoyer.');
-                }).catch(() => {});
+        if (isAndroid) {
+            // Use Android intent scheme to force open WhatsApp app when possible
+            const intentUrl = `intent://send?phone=${phoneDigits}&text=${encoded}#Intent;package=com.whatsapp;scheme=whatsapp;end`;
+            try {
+                window.location.href = intentUrl;
+            } catch (e) {
+                // fallback to web
+                window.open(webUrl, '_blank');
             }
-        }, 1500);
+            // Also open web fallback after a short delay in case intent fails
+            setTimeout(() => { window.open(webUrl, '_blank'); }, 900);
+            return;
+        }
+
+        if (isIOS) {
+            // Try whatsapp scheme first (iOS should open the native app)
+            const appUrl = `whatsapp://send?phone=${phoneDigits}&text=${encoded}`;
+            try {
+                window.location.href = appUrl;
+            } catch (e) {
+                window.open(webUrl, '_blank');
+            }
+            setTimeout(() => { window.open(webUrl, '_blank'); }, 900);
+            return;
+        }
+
+        // Default: open web (desktop or fallback)
+        window.open(webUrl, '_blank');
+
+        // As a courtesy, copy message to clipboard after short delay if possible
+        setTimeout(async () => {
+            if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+                try { await navigator.clipboard.writeText(message); showToast('Message copié dans le presse-papiers.'); } catch (e) {}
+            }
+        }, 1400);
     }
 
     async function saveOrder(order) {
